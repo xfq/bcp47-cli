@@ -1,0 +1,23 @@
+{
+  "name": "validate-bcp47",
+  "version": "0.1.0",
+  "description": "CLI for validating BCP 47 language tags",
+  "license": "W3C-20150513",
+  "type": "module",
+  "bin": {
+    "bcp47": "./bin/bcp47.js"
+  },
+  "files": [
+    "bin",
+    "data",
+    "scripts/update-registry.mjs",
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "update-registry": "node ./scripts/update-registry.mjs"
+  }
+}

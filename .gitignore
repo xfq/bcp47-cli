@@ -1,0 +1,16 @@
+# Node install artifacts
+node_modules/
+
+# Local npm cache used for packaging checks
+.npm-cache/
+
+# npm / test output
+npm-debug.log*
+coverage/
+.nyc_output/
+
+# Packed release archives
+*.tgz
+
+# macOS finder metadata
+.DS_Store
