@@ -1,5 +1,5 @@
 {
-  "name": "validate-bcp47",
+  "name": "bcp47-cli",
   "version": "0.1.0",
   "description": "CLI for validating BCP 47 language tags",
   "license": "W3C-20150513",

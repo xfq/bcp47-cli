@@ -101,7 +101,7 @@ test("supports stdin input", async () => {
 });
 
 test("supports file input", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "validate-bcp47-"));
+  const dir = await mkdtemp(join(tmpdir(), "bcp47-cli-"));
   const filePath = join(dir, "tags.txt");
   await writeFile(filePath, "en\ninvalid-tag-\n", "utf8");
 

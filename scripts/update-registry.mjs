@@ -122,7 +122,7 @@ async function fetchRegistryText(sourceArg) {
 
   const response = await fetch(REGISTRY_URL, {
     headers: {
-      "user-agent": "validate-bcp47/0.1.0",
+      "user-agent": "bcp47-cli/0.1.0",
     },
   });
 

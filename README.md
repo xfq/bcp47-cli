@@ -1,6 +1,6 @@
-# validate-bcp47
+# bcp47-cli
 
-`validate-bcp47` is a CLI for validating [BCP 47](https://www.rfc-editor.org/info/bcp47) language tags.
+`bcp47-cli` is a CLI for validating [BCP 47](https://www.rfc-editor.org/info/bcp47) language tags.
 
 It installs a command, `bcp47`, and supports:
 
@@ -23,6 +23,14 @@ npm link
 ```
 
 That will make `bcp47` available on your `PATH`.
+
+<!-- From npm:
+
+```bash
+npm install --global bcp47-cli
+```
+
+That also installs the `bcp47` command. -->
 
 If you only want to run it locally from the repo:
 
