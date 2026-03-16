@@ -1,12 +1,29 @@
 {
   "name": "bcp47-cli",
   "version": "0.1.0",
-  "description": "CLI for validating BCP 47 language tags",
+  "description": "CLI for validating and explaining BCP 47 language tags",
   "license": "W3C-20150513",
   "type": "module",
   "bin": {
     "bcp47": "./bin/bcp47.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xfq/bcp47-cli.git"
+  },
+  "homepage": "https://github.com/xfq/bcp47-cli#readme",
+  "bugs": {
+    "url": "https://github.com/xfq/bcp47-cli/issues"
+  },
+  "keywords": [
+    "bcp47",
+    "language-tag",
+    "i18n",
+    "l10n",
+    "localization",
+    "cli",
+    "node"
+  ],
   "files": [
     "bin",
     "data",

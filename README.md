@@ -17,21 +17,21 @@ You need Node.js 20 or newer.
 
 ## Install
 
+From npm:
+
+```bash
+npm install --global bcp47-cli
+```
+
+That installs the `bcp47` command on your `PATH`.
+
 From this repository:
 
 ```bash
 npm link
 ```
 
-That will make `bcp47` available on your `PATH`.
-
-<!-- From npm:
-
-```bash
-npm install --global bcp47-cli
-```
-
-That also installs the `bcp47` command. -->
+That also makes `bcp47` available on your `PATH`.
 
 If you only want to run it locally from the repo:
 
