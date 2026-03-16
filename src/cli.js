@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 
-import { analyzeTag } from "./validator.js";
+import { analyzeTag, explainTag, formatSubtag } from "./validator.js";
 
 const VERSION = "0.1.0";
 const EXIT_CODES = {
@@ -11,7 +11,8 @@ const EXIT_CODES = {
   IO_ERROR: 3,
   INTERNAL_ERROR: 4,
 };
-const HELP_USAGE = "bcp47 [validate] [--mode valid|well-formed] [--stdin|--file PATH] [--json] [--quiet] [TAG...]";
+const HELP_USAGE_VALIDATE = "bcp47 [validate] [--mode valid|well-formed] [--stdin|--file PATH] [--json] [--quiet] [TAG...]";
+const HELP_USAGE_EXPLAIN = "bcp47 explain [--json] TAG";
 
 class CliError extends Error {
   constructor({ code, message, exitCode, suggestions = [], details = null }) {
@@ -26,10 +27,12 @@ class CliError extends Error {
 
 function usageText() {
   return [
-    "bcp47: validate BCP 47 tags",
-    `usage: ${HELP_USAGE}`,
-    "default: reads TAG args or stdin when piped; emits JSON when stdout is not a TTY",
-    "exit: 0 success/help/version, 1 validation failed, 2 args/input, 3 io, 4 internal",
+    "bcp47: validate and explain BCP 47 tags",
+    "usage:",
+    `  ${HELP_USAGE_VALIDATE}`,
+    `  ${HELP_USAGE_EXPLAIN}`,
+    "default: validation reads TAG args or stdin when piped; emits JSON when stdout is not a TTY",
+    "exit: 0 success/help/version, 1 explanation or validation failed, 2 args/input, 3 io, 4 internal",
   ].join("\n");
 }
 
@@ -77,6 +80,57 @@ function compactResult(result) {
   return payload;
 }
 
+function compactExplanationSubtag(entry) {
+  const payload = {
+    kind: entry.kind,
+    value: entry.value,
+    displayValue: entry.displayValue,
+    notes: entry.notes,
+  };
+
+  if (entry.registryType) {
+    payload.registryType = entry.registryType;
+  }
+
+  if (entry.descriptions?.length > 0) {
+    payload.descriptions = entry.descriptions;
+  }
+
+  if (entry.deprecated) {
+    payload.deprecated = entry.deprecated;
+  }
+
+  if (entry.preferredValue) {
+    payload.preferredValue = entry.preferredValue;
+  }
+
+  if (entry.prefixes?.length > 0) {
+    payload.prefixes = entry.prefixes;
+  }
+
+  if (entry.suppressScript) {
+    payload.suppressScript = entry.suppressScript;
+  }
+
+  if (entry.scope) {
+    payload.scope = entry.scope;
+  }
+
+  if (entry.macrolanguage) {
+    payload.macrolanguage = entry.macrolanguage;
+  }
+
+  if (entry.comments?.length > 0) {
+    payload.comments = entry.comments;
+  }
+
+  if (entry.extensionSingleton) {
+    payload.extensionSingleton = entry.extensionSingleton;
+  }
+
+  return payload;
+}
+
 function summarizeResults(results) {
   const summary = {
     total: results.length,
@@ -97,14 +151,18 @@ function helpPayload() {
     type: "help",
     ok: true,
     exit: EXIT_CODES.SUCCESS,
-    usage: HELP_USAGE,
+    usage: {
+      validate: HELP_USAGE_VALIDATE,
+      explain: HELP_USAGE_EXPLAIN,
+    },
     notes: [
-      "Reads stdin when piped and no TAG is provided.",
+      "Validation reads stdin when piped and no TAG is provided.",
+      "Explain accepts exactly one tag and does not support --mode, --stdin, --file, or --quiet.",
       "Writes JSON automatically when stdout is not a TTY.",
     ],
     exitCodes: {
       0: "success|help|version",
-      1: "validation_failed",
+      1: "validation_failed|explanation_failed",
       2: "invalid_args|no_input",
       3: "io_error",
       4: "internal_error",
@@ -132,6 +190,38 @@ function validationPayload(results, mode) {
     summary: summarizeResults(results),
     results: results.map(compactResult),
   };
+}
+
+function explanationPayload(result) {
+  const payload = {
+    type: "explanation",
+    ok: result.ok,
+    exit: result.ok ? EXIT_CODES.SUCCESS : EXIT_CODES.VALIDATION_FAILED,
+    tag: result.input,
+    wellFormed: result.wellFormed,
+    valid: result.valid,
+    kind: result.kind,
+    subtags: result.subtags.map(compactExplanationSubtag),
+    guidance: [...result.guidance],
+  };
+
+  if (result.errors.length > 0) {
+    payload.errors = result.errors;
+  }
+
+  if (result.warnings.length > 0) {
+    payload.warnings = result.warnings;
+  }
+
+  if (result.preferredTag) {
+    payload.preferred = result.preferredTag;
+  }
+
+  if (result.deprecated) {
+    payload.deprecated = true;
+  }
+
+  return payload;
 }
 
 function errorPayload(error) {
@@ -188,21 +278,31 @@ function normalizeError(error) {
   );
 }
 
+function unsupportedExplainOptionError(option) {
+  return cliError(
+    "unsupported_option",
+    `${option} is not supported with 'explain'`,
+    ["Use 'bcp47 explain [--json] TAG'.", "Use 'bcp47 validate ...' for validation-only workflows."],
+  );
+}
+
 function parseArgs(argv) {
   const args = [...argv];
-  if (args[0] === "validate") {
-    args.shift();
+  let command = "validate";
+
+  if (args[0] === "validate" || args[0] === "explain") {
+    command = args.shift();
   }
 
   const options = {
+    command,
     mode: "valid",
-    json: false,
-    quiet: false,
     stdin: false,
     file: null,
     tags: [],
     help: false,
     version: false,
+    quiet: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -219,21 +319,29 @@ function parseArgs(argv) {
     }
 
     if (arg === "--json") {
-      options.json = true;
       continue;
     }
 
     if (arg === "--quiet") {
+      if (command === "explain") {
+        throw unsupportedExplainOptionError("--quiet");
+      }
       options.quiet = true;
       continue;
     }
 
     if (arg === "--stdin") {
+      if (command === "explain") {
+        throw unsupportedExplainOptionError("--stdin");
+      }
       options.stdin = true;
       continue;
     }
 
     if (arg === "--mode") {
+      if (command === "explain") {
+        throw unsupportedExplainOptionError("--mode");
+      }
       index += 1;
       if (index >= args.length) {
         throw cliError(
@@ -247,11 +355,17 @@ function parseArgs(argv) {
     }
 
     if (arg.startsWith("--mode=")) {
+      if (command === "explain") {
+        throw unsupportedExplainOptionError("--mode");
+      }
       options.mode = arg.slice("--mode=".length);
       continue;
     }
 
     if (arg === "--file") {
+      if (command === "explain") {
+        throw unsupportedExplainOptionError("--file");
+      }
       index += 1;
       if (index >= args.length) {
         throw cliError(
@@ -265,6 +379,9 @@ function parseArgs(argv) {
     }
 
     if (arg.startsWith("--file=")) {
+      if (command === "explain") {
+        throw unsupportedExplainOptionError("--file");
+      }
       options.file = arg.slice("--file=".length);
       continue;
     }
@@ -280,7 +397,7 @@ function parseArgs(argv) {
     options.tags.push(arg);
   }
 
-  if (!["valid", "well-formed"].includes(options.mode)) {
+  if (command === "validate" && !["valid", "well-formed"].includes(options.mode)) {
     throw cliError(
       "unsupported_mode",
       `unsupported mode '${options.mode}'`,
@@ -330,6 +447,194 @@ function formatResultLine(result) {
   return line;
 }
 
+function formatLabelValue(label, value) {
+  return `  ${label}: ${value}`;
+}
+
+function formatOptionalBlock(title, items) {
+  if (!items || items.length === 0) {
+    return null;
+  }
+
+  return [
+    title,
+    ...items.map((item) => `  - ${item}`),
+  ].join("\n");
+}
+
+function formatEntryPreferredValue(entry) {
+  if (!entry.preferredValue) {
+    return null;
+  }
+
+  if (entry.kind === "region") {
+    return formatSubtag(entry.preferredValue, "region");
+  }
+
+  if (entry.kind === "script") {
+    return formatSubtag(entry.preferredValue, "script");
+  }
+
+  if (entry.kind === "grandfathered") {
+    return entry.preferredValue;
+  }
+
+  return entry.preferredValue.toLowerCase();
+}
+
+function formatExplanationEntry(entry, index) {
+  const lines = [`  ${index + 1}. ${entry.kind}: ${entry.displayValue}`];
+
+  if (entry.registryType) {
+    lines.push(`     registry: ${entry.registryType}`);
+  }
+
+  if (entry.descriptions?.length > 0) {
+    lines.push(`     descriptions: ${entry.descriptions.join("; ")}`);
+  }
+
+  if (entry.scope) {
+    lines.push(`     scope: ${entry.scope}`);
+  }
+
+  if (entry.macrolanguage) {
+    lines.push(`     macrolanguage: ${entry.macrolanguage}`);
+  }
+
+  if (entry.suppressScript) {
+    lines.push(`     suppress-script: ${entry.suppressScript}`);
+  }
+
+  const preferredValue = formatEntryPreferredValue(entry);
+  if (preferredValue) {
+    lines.push(`     preferred-value: ${preferredValue}`);
+  }
+
+  if (entry.prefixes?.length > 0) {
+    lines.push(`     prefixes: ${entry.prefixes.join(", ")}`);
+  }
+
+  if (entry.comments?.length > 0) {
+    lines.push(`     comments: ${entry.comments.join(" | ")}`);
+  }
+
+  if (entry.deprecated) {
+    lines.push(`     deprecated: ${entry.deprecated}`);
+  }
+
+  if (entry.extensionSingleton) {
+    lines.push(`     extension-singleton: ${entry.extensionSingleton}`);
+  }
+
+  for (const note of entry.notes) {
+    lines.push(`     note: ${note}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatExplanationText(result) {
+  const sections = [
+    [
+      "tag",
+      formatLabelValue("input", result.input),
+    ].join("\n"),
+    [
+      "status",
+      formatLabelValue("ok", String(result.ok)),
+      formatLabelValue("wellFormed", String(result.wellFormed)),
+      formatLabelValue("valid", String(result.valid)),
+      formatLabelValue("kind", result.kind),
+      ...(result.preferredTag ? [formatLabelValue("preferred", result.preferredTag)] : []),
+      ...(result.deprecated ? [formatLabelValue("deprecated", "true")] : []),
+    ].join("\n"),
+    [
+      "subtags",
+      ...(result.subtags.length > 0
+        ? result.subtags.map(formatExplanationEntry)
+        : ["  (none)"]),
+    ].join("\n"),
+    [
+      "guidance",
+      ...(result.guidance.length > 0
+        ? result.guidance.map((note) => `  - ${note}`)
+        : ["  (none)"]),
+    ].join("\n"),
+  ];
+
+  const warningsBlock = formatOptionalBlock("warnings", result.warnings);
+  if (warningsBlock) {
+    sections.push(warningsBlock);
+  }
+
+  const errorsBlock = formatOptionalBlock("errors", result.errors);
+  if (errorsBlock) {
+    sections.push(errorsBlock);
+  }
+
+  return `${sections.join("\n")}\n`;
+}
+
+async function collectValidationTags(options, stdin, stdout, stderr, json) {
+  const collectedTags = [...options.tags];
+
+  if (options.file) {
+    try {
+      const fileText = await readFile(options.file, "utf8");
+      collectedTags.push(...splitInputLines(fileText));
+    } catch (error) {
+      const cliErr = cliError(
+        "file_read_failed",
+        `failed to read '${options.file}': ${error.message}`,
+        ["Check that the file exists and is readable.", "Use --stdin to read newline-delimited tags instead."],
+        EXIT_CODES.IO_ERROR,
+        { path: options.file },
+      );
+      emitError(cliErr, json, stdout, stderr);
+      return { error: cliErr };
+    }
+  }
+
+  const shouldReadStdin = options.stdin || (isNonTty(stdin) && collectedTags.length === 0 && !options.file);
+  if (shouldReadStdin) {
+    try {
+      const stdinText = await readStream(stdin);
+      collectedTags.push(...splitInputLines(stdinText));
+    } catch (error) {
+      const cliErr = cliError(
+        "stdin_read_failed",
+        `failed to read stdin: ${error.message}`,
+        ["Retry with --stdin or pass tags as arguments."],
+        EXIT_CODES.IO_ERROR,
+      );
+      emitError(cliErr, json, stdout, stderr);
+      return { error: cliErr };
+    }
+  }
+
+  return { tags: collectedTags };
+}
+
+function validateExplainArity(options) {
+  if (options.tags.length === 1) {
+    return null;
+  }
+
+  if (options.tags.length === 0) {
+    return cliError(
+      "no_input",
+      "explain requires exactly one language tag",
+      ["Use 'bcp47 explain TAG'.", "Use 'bcp47 validate ...' to check multiple tags."],
+    );
+  }
+
+  return cliError(
+    "too_many_tags",
+    "explain accepts exactly one language tag",
+    ["Use 'bcp47 explain TAG' for a single explanation.", "Use 'bcp47 validate ...' to check multiple tags."],
+  );
+}
+
 export async function runCli(argv, io = {}) {
   const stdin = io.stdin ?? process.stdin;
   const stdout = io.stdout ?? process.stdout;
@@ -364,43 +669,31 @@ export async function runCli(argv, io = {}) {
       return EXIT_CODES.SUCCESS;
     }
 
-    const collectedTags = [...options.tags];
-
-    if (options.file) {
-      try {
-        const fileText = await readFile(options.file, "utf8");
-        collectedTags.push(...splitInputLines(fileText));
-      } catch (error) {
-        const cliErr = cliError(
-          "file_read_failed",
-          `failed to read '${options.file}': ${error.message}`,
-          ["Check that the file exists and is readable.", "Use --stdin to read newline-delimited tags instead."],
-          EXIT_CODES.IO_ERROR,
-          { path: options.file },
-        );
-        emitError(cliErr, json, stdout, stderr);
-        return cliErr.exitCode;
+    if (options.command === "explain") {
+      const arityError = validateExplainArity(options);
+      if (arityError) {
+        emitError(arityError, json, stdout, stderr);
+        return arityError.exitCode;
       }
+
+      const explanation = explainTag(options.tags[0]);
+      const payload = explanationPayload(explanation);
+
+      if (json) {
+        writeJson(stdout, payload);
+      } else {
+        stdout.write(formatExplanationText(explanation));
+      }
+
+      return payload.exit;
     }
 
-    const shouldReadStdin = options.stdin || (isNonTty(stdin) && collectedTags.length === 0 && !options.file);
-    if (shouldReadStdin) {
-      try {
-        const stdinText = await readStream(stdin);
-        collectedTags.push(...splitInputLines(stdinText));
-      } catch (error) {
-        const cliErr = cliError(
-          "stdin_read_failed",
-          `failed to read stdin: ${error.message}`,
-          ["Retry with --stdin or pass tags as arguments."],
-          EXIT_CODES.IO_ERROR,
-        );
-        emitError(cliErr, json, stdout, stderr);
-        return cliErr.exitCode;
-      }
+    const collected = await collectValidationTags(options, stdin, stdout, stderr, json);
+    if (collected.error) {
+      return collected.error.exitCode;
     }
 
-    if (collectedTags.length === 0) {
+    if (collected.tags.length === 0) {
       const cliErr = cliError(
         "no_input",
         "no language tags provided",
@@ -410,7 +703,7 @@ export async function runCli(argv, io = {}) {
       return cliErr.exitCode;
     }
 
-    const results = collectedTags.map((tag) => analyzeTag(tag, { mode: options.mode }));
+    const results = collected.tags.map((tag) => analyzeTag(tag, { mode: options.mode }));
     const payload = validationPayload(results, options.mode);
 
     if (!options.quiet) {

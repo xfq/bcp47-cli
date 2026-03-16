@@ -1,11 +1,12 @@
 # bcp47-cli
 
-`bcp47-cli` is a CLI for validating [BCP 47](https://www.rfc-editor.org/info/bcp47) language tags.
+`bcp47-cli` is a CLI for validating and explaining [BCP 47](https://www.rfc-editor.org/info/bcp47) language tags.
 
 It installs a command, `bcp47`, and supports:
 
 - RFC 5646 well-formedness checks
 - Registry-backed validity checks using a IANA Language Subtag Registry snapshot
+- Registry-backed explanations of individual tags and subtags
 - Dense human-readable output on TTYs
 - Compact JSON output for agents and scripts
 - Input from arguments, stdin, or a file
@@ -44,11 +45,12 @@ node ./bin/bcp47.js --help
 bcp47
 bcp47 <tag...>
 bcp47 validate <tag...>
+bcp47 explain <tag>
 bcp47 --stdin
 bcp47 --file <path>
 ```
 
-### Options
+### Validation Options
 
 ```text
 --mode <valid|well-formed>  Validation mode (default: valid)
@@ -59,6 +61,14 @@ bcp47 --file <path>
 -h, --help                  Show help
 -v, --version               Show version
 ```
+
+### Explain Command
+
+```text
+bcp47 explain [--json] <tag>
+```
+
+`explain` accepts exactly one tag and uses the bundled IANA registry snapshot plus the CLI's existing BCP 47 parser to break the tag down for a user. It does not support `--mode`, `--stdin`, `--file`, or `--quiet`.
 
 With no arguments on a TTY, `bcp47` prints a short quick-start help screen. When stdout is not a TTY, it emits JSON automatically unless `--quiet` is set.
 
@@ -157,16 +167,130 @@ bcp47 --mode well-formed en-QQ
 
 In `well-formed` mode, a tag can pass syntax validation even if it is not valid against the IANA registry.
 
+To explain a normal tag:
+
+```bash
+bcp47 explain en-US
+```
+
+TTY output is sectioned and user-facing:
+
+```text
+tag
+  input: en-US
+status
+  ok: true
+  wellFormed: true
+  valid: true
+  kind: langtag
+subtags
+  1. language: en
+     registry: language
+     descriptions: English
+     suppress-script: Latn
+     note: Primary language subtag.
+  2. region: US
+     registry: region
+     descriptions: United States
+     note: Region subtag.
+guidance
+  - Keep tags as short as possible; only add subtags that add useful distinction.
+  - Region subtags are only useful when geographic variation needs to be distinguished.
+```
+
+Examples for other explanation cases:
+
+```bash
+bcp47 explain zh-yue
+bcp47 explain de-DE-u-co-phonebk
+bcp47 explain en-US-x-twain
+bcp47 explain i-klingon
+```
+
+If you want machine-readable explanation output, use `--json` or pipe the command:
+
+```bash
+bcp47 explain --json zh-yue
+```
+
+That produces output like this:
+
+```json
+{
+  "type": "explanation",
+  "ok": true,
+  "exit": 0,
+  "tag": "zh-yue",
+  "wellFormed": true,
+  "valid": true,
+  "kind": "langtag",
+  "deprecated": true,
+  "preferred": "yue",
+  "subtags": [
+    {
+      "kind": "language",
+      "value": "zh",
+      "displayValue": "zh",
+      "notes": [
+        "Primary language subtag.",
+        "This is a macrolanguage covering multiple more specific languages."
+      ],
+      "registryType": "language",
+      "descriptions": [
+        "Chinese"
+      ],
+      "scope": "macrolanguage"
+    },
+    {
+      "kind": "extlang",
+      "value": "yue",
+      "displayValue": "yue",
+      "notes": [
+        "Extended language subtag.",
+        "Registered prefix: 'zh'.",
+        "The standalone language subtag 'yue' is usually preferred over 'zh-yue'."
+      ],
+      "registryType": "extlang",
+      "descriptions": [
+        "Yue Chinese",
+        "Cantonese"
+      ],
+      "preferredValue": "yue",
+      "prefixes": [
+        "zh"
+      ],
+      "macrolanguage": "zh"
+    }
+  ],
+  "guidance": [
+    "Keep tags as short as possible; only add subtags that add useful distinction.",
+    "Language subtag 'zh' is a macrolanguage; a more specific encompassed language may be better for new tags, but established usage can still favor the macrolanguage.",
+    "The standalone language subtag 'yue' is usually preferred over the extlang form 'zh-yue'.",
+    "The exact tag 'zh-yue' is deprecated in the registry; prefer 'yue'."
+  ],
+  "warnings": [
+    "tag 'zh-yue' is deprecated; prefer 'yue'",
+    "extended language form 'zh-yue' is valid but 'yue' is preferred"
+  ]
+}
+```
+
 ## Validation Behavior
 
 `bcp47` distinguishes between two concepts. A tag is `well-formed` when it matches BCP 47 syntax. A tag is `valid` when it is well-formed and its language, extlang, script, region, and variant subtags are known in the IANA registry.
 
 Beyond that basic distinction, the CLI rejects duplicate variants and duplicate extension singletons, enforces extlang prefix rules, accepts deprecated but still-valid tags while reporting preferred replacements when available, validates extensions structurally without implementing extension-specific subtag semantics, and treats variant registry prefixes as advisory warnings rather than hard failures.
 
+## Explanation Behavior
+
+`bcp47 explain` is always registry-backed. For well-formed tags it breaks the input into ordered subtags, attaches any available registry metadata, and adds concise guidance derived from the registry.
+
+Malformed tags still produce an explanation payload, but they do not include a subtag breakdown because the tag could not be parsed structurally. Registry-invalid but well-formed tags still include their parsed subtags plus the validation errors.
+
 ## Exit Codes
 
-- `0`: every checked tag passed the selected validation mode
-- `1`: at least one checked tag failed validation
+- `0`: validation or explanation succeeded
+- `1`: the checked tag or at least one checked tag failed explanation or validation
 - `2`: CLI usage or input error, such as an unknown option or missing tags
 - `3`: I/O error while reading a file or stdin
 - `4`: unexpected internal error

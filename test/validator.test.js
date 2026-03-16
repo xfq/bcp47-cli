@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { analyzeTag } from "../src/validator.js";
+import { analyzeTag, explainTag } from "../src/validator.js";
 
 test("accepts common valid tags", () => {
   for (const tag of ["en", "en-US", "zh-Hant-TW", "sl-rozaj-biske", "x-private", "zh-yue", "en-a-bbb-x-a-ccc"]) {
@@ -45,4 +45,71 @@ test("surfaces preferred replacements for deprecated tags", () => {
   const redundant = analyzeTag("sgn-US");
   assert.equal(redundant.ok, true);
   assert.equal(redundant.preferredTag, "ase");
+});
+
+test("explainTag preserves language-extlang-script-region-variant-extension-privateuse order", () => {
+  const result = explainTag("zh-yue-Latn-TW-pinyin-u-co-phonebk-x-private");
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.subtags.map((entry) => entry.kind),
+    [
+      "language",
+      "extlang",
+      "script",
+      "region",
+      "variant",
+      "extension-singleton",
+      "extension",
+      "extension",
+      "privateuse-singleton",
+      "privateuse",
+    ],
+  );
+});
+
+test("explainTag includes registry metadata and suppress-script guidance", () => {
+  const result = explainTag("en-Latn-US");
+  const language = result.subtags.find((entry) => entry.kind === "language");
+  const script = result.subtags.find((entry) => entry.kind === "script");
+
+  assert.equal(language?.registryType, "language");
+  assert.equal(language?.suppressScript, "Latn");
+  assert.ok(script?.notes.some((note) => /usually omitted/.test(note)));
+  assert.ok(result.guidance.some((note) => /usually omitted/.test(note)));
+});
+
+test("explainTag covers extlang preference, extension notes, and private use", () => {
+  const result = explainTag("zh-yue-Latn-TW-pinyin-u-co-phonebk-x-private");
+  const extlang = result.subtags.find((entry) => entry.kind === "extlang");
+  const extensionSingleton = result.subtags.find((entry) => entry.kind === "extension-singleton");
+  const privateUse = result.subtags.find((entry) => entry.kind === "privateuse");
+
+  assert.ok(extlang?.notes.some((note) => /standalone language subtag 'yue'/.test(note)));
+  assert.ok(extensionSingleton?.notes.some((note) => /Unicode locale extension/.test(note)));
+  assert.ok(privateUse?.notes.some((note) => /local agreement/.test(note)));
+  assert.ok(result.guidance.some((note) => /Extension subtags are validated structurally/.test(note)));
+  assert.ok(result.guidance.some((note) => /Private-use subtags reduce interoperability/.test(note)));
+});
+
+test("explainTag reports deprecated grandfathered tags", () => {
+  const result = explainTag("i-klingon");
+
+  assert.equal(result.kind, "grandfathered");
+  assert.equal(result.preferredTag, "tlh");
+  assert.ok(result.subtags[0].notes.some((note) => /Grandfathered tag/.test(note)));
+  assert.ok(result.guidance.some((note) => /Prefer 'tlh'/.test(note)));
+});
+
+test("explainTag keeps malformed tags syntax-only and still breaks down registry-invalid tags", () => {
+  const malformed = explainTag("en-");
+  assert.equal(malformed.wellFormed, false);
+  assert.deepEqual(malformed.subtags, []);
+  assert.ok(malformed.guidance[0].includes("not well-formed"));
+
+  const invalid = explainTag("en-QQ");
+  assert.equal(invalid.wellFormed, true);
+  assert.equal(invalid.valid, false);
+  assert.deepEqual(invalid.subtags.map((entry) => entry.kind), ["language", "region"]);
+  assert.match(invalid.errors[0], /unknown region/);
 });
