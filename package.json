@@ -5,7 +5,7 @@
   "license": "W3C-20150513",
   "type": "module",
   "bin": {
-    "bcp47": "./bin/bcp47.js"
+    "bcp47": "bin/bcp47.js"
   },
   "repository": {
     "type": "git",
