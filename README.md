@@ -6,8 +6,8 @@ It installs a command, `bcp47`, and supports:
 
 - RFC 5646 well-formedness checks
 - Registry-backed validity checks using a IANA Language Subtag Registry snapshot
-- Human-readable output by default
-- JSON output for scripts
+- Dense human-readable output on TTYs
+- Compact JSON output for agents and scripts
 - Input from arguments, stdin, or a file
 
 ## Requirements
@@ -33,7 +33,8 @@ node ./bin/bcp47.js --help
 ## Usage
 
 ```bash
-bcp47 <tag>
+bcp47
+bcp47 <tag...>
 bcp47 validate <tag...>
 bcp47 --stdin
 bcp47 --file <path>
@@ -45,11 +46,13 @@ bcp47 --file <path>
 --mode <valid|well-formed>  Validation mode (default: valid)
 --stdin                     Read newline-delimited tags from stdin
 --file <path>               Read newline-delimited tags from a file
---json                      Emit JSON output
---quiet                     Suppress normal output and use exit codes only
+--json                      Force JSON output
+--quiet                     Suppress validation output and use exit codes only
 -h, --help                  Show help
 -v, --version               Show version
 ```
+
+With no arguments on a TTY, `bcp47` prints a short quick-start help screen. When stdout is not a TTY, it emits JSON automatically unless `--quiet` is set.
 
 ## Examples
 
@@ -65,12 +68,12 @@ To validate several tags at once:
 bcp47 validate en en-BU de-419-DE
 ```
 
-The default output is designed to be readable in a terminal:
+TTY output is dense and line-oriented:
 
 ```text
-OK en
-OK en-BU: region subtag 'BU' is deprecated; prefer 'MM'; preferred: en-MM
-INVALID de-419-DE: region subtag may appear at most once
+ok en
+ok en-BU warn="region subtag 'BU' is deprecated; prefer 'MM'" preferred=en-MM
+fail de-419-DE error="region subtag may appear at most once"
 ```
 
 You can also stream newline-delimited tags through stdin:
@@ -85,7 +88,7 @@ Or read them from a file:
 bcp47 --file ./tags.txt
 ```
 
-If you need machine-readable output, use JSON mode:
+If you need machine-readable output, use `--json`, or just pipe the command:
 
 ```bash
 bcp47 --json en-BU
@@ -95,23 +98,45 @@ That produces output like this:
 
 ```json
 {
+  "type": "validation",
   "ok": true,
+  "exit": 0,
   "mode": "valid",
+  "summary": {
+    "total": 1,
+    "pass": 1,
+    "fail": 0,
+    "warn": 1
+  },
   "results": [
     {
-      "input": "en-BU",
-      "mode": "valid",
+      "tag": "en-BU",
       "ok": true,
       "wellFormed": true,
       "valid": true,
-      "errors": [],
+      "kind": "langtag",
       "warnings": [
         "region subtag 'BU' is deprecated; prefer 'MM'"
       ],
-      "preferredTag": "en-MM",
-      "deprecated": true,
-      "kind": "langtag"
+      "preferred": "en-MM",
+      "deprecated": true
     }
+  ]
+}
+```
+
+Structured command errors also use JSON in script mode:
+
+```json
+{
+  "type": "error",
+  "ok": false,
+  "exit": 2,
+  "code": "missing_option_value",
+  "message": "--mode requires a value",
+  "suggestions": [
+    "Use --mode valid or --mode well-formed.",
+    "Run bcp47 --help to see the full syntax."
   ]
 }
 ```
@@ -134,7 +159,9 @@ Beyond that basic distinction, the CLI rejects duplicate variants and duplicate 
 
 - `0`: every checked tag passed the selected validation mode
 - `1`: at least one checked tag failed validation
-- `2`: CLI usage or input error, such as an unknown option or unreadable file
+- `2`: CLI usage or input error, such as an unknown option or missing tags
+- `3`: I/O error while reading a file or stdin
+- `4`: unexpected internal error
 
 ## Data Source
 
