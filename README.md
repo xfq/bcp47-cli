@@ -80,6 +80,12 @@ To validate a single tag:
 bcp47 en-US
 ```
 
+To validate a tag with a script subtag:
+
+```bash
+bcp47 zh-Hans
+```
+
 To validate several tags at once:
 
 ```bash
@@ -202,6 +208,7 @@ Examples for other explanation cases:
 
 ```bash
 bcp47 explain zh-yue
+bcp47 explain zh-Hans
 bcp47 explain de-DE-u-co-phonebk
 bcp47 explain en-US-x-twain
 bcp47 explain i-klingon
