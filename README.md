@@ -97,7 +97,7 @@ fail de-419-DE error="region subtag may appear at most once"
 You can also stream newline-delimited tags through stdin:
 
 ```bash
-printf 'en\nen-BU\nx-private\n' | bcp47 --stdin
+printf 'en\nen-BU\nen-US-x-twain\n' | bcp47 --stdin
 ```
 
 Or read them from a file:

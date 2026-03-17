@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { analyzeTag, explainTag } from "../src/validator.js";
 
 test("accepts common valid tags", () => {
-  for (const tag of ["en", "en-US", "zh-Hant-TW", "sl-rozaj-biske", "x-private", "zh-yue", "en-a-bbb-x-a-ccc"]) {
+  for (const tag of ["en", "en-US", "zh-Hant-TW", "sl-rozaj-biske", "en-US-x-twain", "zh-yue", "en-a-bbb-x-a-ccc"]) {
     const result = analyzeTag(tag);
     assert.equal(result.valid, true, tag);
     assert.equal(result.ok, true, tag);
