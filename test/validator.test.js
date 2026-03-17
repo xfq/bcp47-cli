@@ -12,11 +12,19 @@ test("accepts common valid tags", () => {
 });
 
 test("rejects malformed tags", () => {
-  for (const tag of ["a-DE", "de-419-DE", "en-a-bbb-a-ccc", "en-", "en-a", "de-DE-1901-1901"]) {
+  for (const tag of ["a-DE", "de-419-DE", "en-", "en-a", "de-DE-1901-1901"]) {
     const result = analyzeTag(tag);
     assert.equal(result.ok, false, tag);
     assert.equal(result.valid, false, tag);
   }
+});
+
+test("rejects repeated extension singletons", () => {
+  const result = analyzeTag("en-a-bbb-a-ccc");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.valid, false);
+  assert.match(result.errors[0], /duplicate extension singleton 'a'/);
 });
 
 test("rejects registry-invalid subtags and extlang prefixes", () => {

@@ -279,7 +279,7 @@ That produces output like this:
 
 `bcp47` distinguishes between two concepts. A tag is `well-formed` when it matches BCP 47 syntax. A tag is `valid` when it is well-formed and its language, extlang, script, region, and variant subtags are known in the IANA registry.
 
-Beyond that basic distinction, the CLI rejects duplicate variants and duplicate extension singletons, enforces extlang prefix rules, accepts deprecated but still-valid tags while reporting preferred replacements when available, validates extensions structurally without implementing extension-specific subtag semantics, and treats variant registry prefixes as advisory warnings rather than hard failures.
+Beyond that basic distinction, the CLI rejects duplicate variants and duplicate extension singletons, enforces extlang prefix rules, accepts deprecated but still-valid tags while reporting preferred replacements when available, validates extensions structurally without implementing extension-specific subtag semantics, and treats variant registry prefixes as advisory warnings rather than hard failures. Singleton subtags MUST NOT be repeated. For example, `en-a-bbb-a-ccc` is invalid because the singleton subtag `a` appears twice.
 
 ## Explanation Behavior
 
