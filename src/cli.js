@@ -3,7 +3,7 @@ import process from "node:process";
 
 import { analyzeTag, explainSubtag, explainTag, formatSubtag } from "./validator.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const EXIT_CODES = {
   SUCCESS: 0,
   VALIDATION_FAILED: 1,

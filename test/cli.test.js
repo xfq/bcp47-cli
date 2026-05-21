@@ -148,7 +148,7 @@ test("supports explicit json help and version output", async () => {
     type: "version",
     ok: true,
     exit: 0,
-    version: "0.1.0",
+    version: "0.2.0",
   });
 });
 
