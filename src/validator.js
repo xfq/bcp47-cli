@@ -884,6 +884,58 @@ function buildVariantNotes(parsed, record, value) {
   return notes;
 }
 
+function buildStandaloneExtlangNotes(record) {
+  const notes = ["Extended language subtag."];
+
+  if (!record) {
+    notes.push("This extended language subtag was not found.");
+    return notes;
+  }
+
+  if (record.prefixes.length > 0) {
+    notes.push(`Registered prefix: ${record.prefixes.map((prefix) => `'${prefix}'`).join(", ")}.`);
+  }
+
+  if (record.preferredValue) {
+    notes.push(`The standalone language subtag '${record.preferredValue.toLowerCase()}' is usually preferred.`);
+  }
+
+  if (record.deprecated) {
+    notes.push(
+      record.preferredValue
+        ? `Deprecated in the registry; prefer '${record.preferredValue.toLowerCase()}'.`
+        : "Deprecated in the registry.",
+    );
+  }
+
+  return notes;
+}
+
+function buildStandaloneVariantNotes(record) {
+  const notes = ["Variant subtag."];
+
+  if (!record) {
+    notes.push("This variant subtag was not found in the bundled IANA registry snapshot.");
+    return notes;
+  }
+
+  if (record.prefixes.length > 0) {
+    notes.push(`Recommended registry prefix${record.prefixes.length === 1 ? "" : "es"}: ${record.prefixes.join(", ")}.`);
+  } else {
+    notes.push("This variant does not declare any registry prefixes.");
+  }
+
+  if (record.deprecated) {
+    notes.push(
+      record.preferredValue
+        ? `Deprecated in the registry; prefer '${record.preferredValue.toLowerCase()}'.`
+        : "Deprecated in the registry.",
+    );
+  }
+
+  return notes;
+}
+
 function buildExtensionSingletonNotes(singleton, count) {
   const notes = [`Introduces the '${singleton}' extension sequence.`];
 
@@ -1116,6 +1168,91 @@ function buildGuidance(parsed, registry, result) {
   }
 
   return guidance;
+}
+
+function buildSubtagLookupEntry(kind, value, record) {
+  let notes;
+
+  if (kind === "language") {
+    notes = buildLanguageNotes({ script: null }, record);
+  } else if (kind === "extlang") {
+    notes = buildStandaloneExtlangNotes(record);
+  } else if (kind === "script") {
+    notes = buildScriptNotes({ script: value }, null, record);
+  } else if (kind === "region") {
+    notes = buildRegionNotes(record, value);
+  } else {
+    notes = buildStandaloneVariantNotes(record);
+  }
+
+  return addCommonRegistryMetadata({
+    kind,
+    value,
+    displayValue: formatDisplayValue(kind, value),
+    notes,
+  }, kind, record);
+}
+
+export function explainSubtag(input, options = {}) {
+  const registry = options.registry ?? getRegistry();
+  const trimmed = input.trim();
+  const result = {
+    input,
+    ok: false,
+    matches: [],
+    guidance: [],
+    errors: [],
+  };
+
+  if (trimmed.length === 0) {
+    result.errors.push("subtag is empty");
+    return result;
+  }
+
+  if (/\s/.test(trimmed)) {
+    result.errors.push("subtag must not contain whitespace");
+    return result;
+  }
+
+  if (trimmed.includes("-")) {
+    result.errors.push("subtag must not contain '-'");
+    return result;
+  }
+
+  if (!isAlnum(trimmed)) {
+    result.errors.push(`subtag '${input}' must contain only ASCII letters or digits`);
+    return result;
+  }
+
+  if (trimmed.length > 8) {
+    result.errors.push(`subtag '${input}' exceeds the maximum length of 8 characters`);
+    return result;
+  }
+
+  const value = trimmed.toLowerCase();
+  const registryGroups = [
+    ["language", registry.languages],
+    ["extlang", registry.extlangs],
+    ["script", registry.scripts],
+    ["region", registry.regions],
+    ["variant", registry.variants],
+  ];
+
+  for (const [kind, records] of registryGroups) {
+    const record = records[value];
+    if (record) {
+      result.matches.push(buildSubtagLookupEntry(kind, value, record));
+    }
+  }
+
+  if (result.matches.length === 0) {
+    result.errors.push(`unknown subtag '${input}'`);
+    return result;
+  }
+
+  result.ok = true;
+  result.guidance.push("Use 'bcp47 explain TAG' to see how a subtag behaves inside a complete language tag.");
+  return result;
 }
 
 export function explainTag(input, options = {}) {

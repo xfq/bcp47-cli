@@ -46,6 +46,7 @@ bcp47
 bcp47 <tag...>
 bcp47 validate <tag...>
 bcp47 explain <tag>
+bcp47 subtag <subtag>
 bcp47 --stdin
 bcp47 --file <path>
 ```
@@ -69,6 +70,14 @@ bcp47 explain [--json] <tag>
 ```
 
 `explain` accepts exactly one tag and uses the bundled IANA registry snapshot plus the CLI's existing BCP 47 parser to break the tag down for a user. It does not support `--mode`, `--stdin`, `--file`, or `--quiet`.
+
+### Subtag Command
+
+```text
+bcp47 subtag [--json] <subtag>
+```
+
+`subtag` accepts exactly one subtag and looks it up directly. It searches language, extended language, script, region, and variant records, and returns every matching registry type when a value is ambiguous. It does not support `--mode`, `--stdin`, `--file`, or `--quiet`.
 
 With no arguments on a TTY, `bcp47` prints a short quick-start help screen. When stdout is not a TTY, it emits JSON automatically unless `--quiet` is set.
 
@@ -214,6 +223,18 @@ bcp47 explain en-US-x-twain
 bcp47 explain i-klingon
 ```
 
+To look up one registry subtag without constructing a complete language tag:
+
+```bash
+bcp47 subtag Hrkt
+```
+
+If a subtag value exists in more than one registry type, all matches are returned:
+
+```bash
+bcp47 subtag AA
+```
+
 If you want machine-readable explanation output, use `--json` or pipe the command:
 
 ```bash
@@ -282,6 +303,38 @@ That produces output like this:
 }
 ```
 
+Machine-readable subtag lookup uses a `matches` array:
+
+```bash
+bcp47 subtag --json Hrkt
+```
+
+```json
+{
+  "type": "subtag",
+  "ok": true,
+  "exit": 0,
+  "subtag": "Hrkt",
+  "matches": [
+    {
+      "kind": "script",
+      "value": "hrkt",
+      "displayValue": "Hrkt",
+      "notes": [
+        "Script subtag."
+      ],
+      "registryType": "script",
+      "descriptions": [
+        "Japanese syllabaries (alias for Hiragana + Katakana)"
+      ]
+    }
+  ],
+  "guidance": [
+    "Use 'bcp47 explain TAG' to see how a subtag behaves inside a complete language tag."
+  ]
+}
+```
+
 ## Validation Behavior
 
 `bcp47` distinguishes between two concepts. A tag is `well-formed` when it matches BCP 47 syntax. A tag is `valid` when it is well-formed and its language, extlang, script, region, and variant subtags are known in the IANA registry.
@@ -294,10 +347,12 @@ Beyond that basic distinction, the CLI rejects duplicate variants and duplicate 
 
 Malformed tags still produce an explanation payload, but they do not include a subtag breakdown because the tag could not be parsed structurally. Registry-invalid but well-formed tags still include their parsed subtags plus the validation errors.
 
+`bcp47 subtag` is also registry-backed, but it does not parse a complete tag. It returns registry matches for the supplied subtag value and exits with failure when the value is malformed or unknown.
+
 ## Exit Codes
 
-- `0`: validation or explanation succeeded
-- `1`: the checked tag or at least one checked tag failed explanation or validation
+- `0`: succeeded
+- `1`: the checked tag or subtag failed explanation, validation, or lookup
 - `2`: CLI usage or input error, such as an unknown option or missing tags
 - `3`: I/O error while reading a file or stdin
 - `4`: unexpected internal error

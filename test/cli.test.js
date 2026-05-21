@@ -88,6 +88,7 @@ test("shows compact help with no args on a tty", async () => {
   assert.equal(stderr.toString(), "");
   assert.match(stdout.toString(), /^bcp47: validate and explain BCP 47 tags/m);
   assert.match(stdout.toString(), /^  bcp47 explain \[--json\] TAG$/m);
+  assert.match(stdout.toString(), /^  bcp47 subtag \[--json\] SUBTAG$/m);
 });
 
 test("supports stdin input", async () => {
@@ -124,15 +125,17 @@ test("supports explicit json help and version output", async () => {
     usage: {
       validate: "bcp47 [validate] [--mode valid|well-formed] [--stdin|--file PATH] [--json] [--quiet] [TAG...]",
       explain: "bcp47 explain [--json] TAG",
+      subtag: "bcp47 subtag [--json] SUBTAG",
     },
     notes: [
       "Validation reads stdin when piped and no TAG is provided.",
       "Explain accepts exactly one tag and does not support --mode, --stdin, --file, or --quiet.",
+      "Subtag lookup accepts exactly one subtag and does not support --mode, --stdin, --file, or --quiet.",
       "Writes JSON automatically when stdout is not a TTY.",
     ],
     exitCodes: {
       0: "success|help|version",
-      1: "validation_failed|explanation_failed",
+      1: "validation_failed|explanation_failed|subtag_failed",
       2: "invalid_args|no_input",
       3: "io_error",
       4: "internal_error",
@@ -256,6 +259,65 @@ test("explain enforces single-tag input and rejects validation-only options", as
   assert.equal(JSON.parse(many.stdout).code, "too_many_tags");
 
   const unsupported = await runCli(["explain", "--mode", "valid", "en"]);
+  assert.equal(unsupported.code, 2);
+  assert.equal(JSON.parse(unsupported.stdout).code, "unsupported_option");
+});
+
+test("subtag emits structured json automatically when stdout is piped", async () => {
+  const result = await runCli(["subtag", "Hrkt"]);
+  assert.equal(result.code, 0);
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.type, "subtag");
+  assert.equal(payload.ok, true);
+  assert.equal(payload.subtag, "Hrkt");
+  assert.deepEqual(payload.matches, [
+    {
+      kind: "script",
+      value: "hrkt",
+      displayValue: "Hrkt",
+      notes: ["Script subtag."],
+      registryType: "script",
+      descriptions: ["Japanese syllabaries (alias for Hiragana + Katakana)"],
+    },
+  ]);
+});
+
+test("subtag keeps text output structured on a tty", async () => {
+  const stdout = createWritable(true);
+  const stderr = createWritable(true);
+  const code = await runCliInProcess(["subtag", "AA"], {
+    stdin: createTtyInput(),
+    stdout,
+    stderr,
+  });
+
+  assert.equal(code, 0);
+  assert.equal(stderr.toString(), "");
+  assert.match(stdout.toString(), /^subtag$/m);
+  assert.match(stdout.toString(), /^matches$/m);
+  assert.match(stdout.toString(), /^  1\. language: aa$/m);
+  assert.match(stdout.toString(), /^  2\. region: AA$/m);
+});
+
+test("subtag reports unknown subtags and rejects validation-only options", async () => {
+  const unknown = await runCli(["subtag", "Nope"]);
+  assert.equal(unknown.code, 1);
+  const unknownPayload = JSON.parse(unknown.stdout);
+  assert.equal(unknownPayload.type, "subtag");
+  assert.equal(unknownPayload.ok, false);
+  assert.deepEqual(unknownPayload.matches, []);
+  assert.match(unknownPayload.errors[0], /unknown subtag 'Nope'/);
+
+  const missing = await runCli(["subtag"]);
+  assert.equal(missing.code, 2);
+  assert.equal(JSON.parse(missing.stdout).code, "no_input");
+
+  const many = await runCli(["subtag", "en", "fr"]);
+  assert.equal(many.code, 2);
+  assert.equal(JSON.parse(many.stdout).code, "too_many_subtags");
+
+  const unsupported = await runCli(["subtag", "--stdin", "Hrkt"]);
   assert.equal(unsupported.code, 2);
   assert.equal(JSON.parse(unsupported.stdout).code, "unsupported_option");
 });

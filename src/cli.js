@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 
-import { analyzeTag, explainTag, formatSubtag } from "./validator.js";
+import { analyzeTag, explainSubtag, explainTag, formatSubtag } from "./validator.js";
 
 const VERSION = "0.1.0";
 const EXIT_CODES = {
@@ -13,6 +13,7 @@ const EXIT_CODES = {
 };
 const HELP_USAGE_VALIDATE = "bcp47 [validate] [--mode valid|well-formed] [--stdin|--file PATH] [--json] [--quiet] [TAG...]";
 const HELP_USAGE_EXPLAIN = "bcp47 explain [--json] TAG";
+const HELP_USAGE_SUBTAG = "bcp47 subtag [--json] SUBTAG";
 
 class CliError extends Error {
   constructor({ code, message, exitCode, suggestions = [], details = null }) {
@@ -27,12 +28,13 @@ class CliError extends Error {
 
 function usageText() {
   return [
-    "bcp47: validate and explain BCP 47 tags",
+    "bcp47: validate and explain BCP 47 tags and subtags",
     "usage:",
     `  ${HELP_USAGE_VALIDATE}`,
     `  ${HELP_USAGE_EXPLAIN}`,
+    `  ${HELP_USAGE_SUBTAG}`,
     "default: validation reads TAG args or stdin when piped; emits JSON when stdout is not a TTY",
-    "exit: 0 success/help/version, 1 explanation or validation failed, 2 args/input, 3 io, 4 internal",
+    "exit: 0 success/help/version, 1 explanation, validation, or subtag lookup failed, 2 args/input, 3 io, 4 internal",
   ].join("\n");
 }
 
@@ -154,15 +156,17 @@ function helpPayload() {
     usage: {
       validate: HELP_USAGE_VALIDATE,
       explain: HELP_USAGE_EXPLAIN,
+      subtag: HELP_USAGE_SUBTAG,
     },
     notes: [
       "Validation reads stdin when piped and no TAG is provided.",
       "Explain accepts exactly one tag and does not support --mode, --stdin, --file, or --quiet.",
+      "Subtag lookup accepts exactly one subtag and does not support --mode, --stdin, --file, or --quiet.",
       "Writes JSON automatically when stdout is not a TTY.",
     ],
     exitCodes: {
       0: "success|help|version",
-      1: "validation_failed|explanation_failed",
+      1: "validation_failed|explanation_failed|subtag_failed",
       2: "invalid_args|no_input",
       3: "io_error",
       4: "internal_error",
@@ -224,6 +228,23 @@ function explanationPayload(result) {
   return payload;
 }
 
+function subtagPayload(result) {
+  const payload = {
+    type: "subtag",
+    ok: result.ok,
+    exit: result.ok ? EXIT_CODES.SUCCESS : EXIT_CODES.VALIDATION_FAILED,
+    subtag: result.input,
+    matches: result.matches.map(compactExplanationSubtag),
+    guidance: [...result.guidance],
+  };
+
+  if (result.errors.length > 0) {
+    payload.errors = result.errors;
+  }
+
+  return payload;
+}
+
 function errorPayload(error) {
   const payload = {
     type: "error",
@@ -278,11 +299,13 @@ function normalizeError(error) {
   );
 }
 
-function unsupportedExplainOptionError(option) {
+function unsupportedLookupOptionError(option, command) {
+  const usage = command === "explain" ? HELP_USAGE_EXPLAIN : HELP_USAGE_SUBTAG;
+
   return cliError(
     "unsupported_option",
-    `${option} is not supported with 'explain'`,
-    ["Use 'bcp47 explain [--json] TAG'.", "Use 'bcp47 validate ...' for validation-only workflows."],
+    `${option} is not supported with '${command}'`,
+    [`Use '${usage}'.`, "Use 'bcp47 validate ...' for validation-only workflows."],
   );
 }
 
@@ -290,7 +313,7 @@ function parseArgs(argv) {
   const args = [...argv];
   let command = "validate";
 
-  if (args[0] === "validate" || args[0] === "explain") {
+  if (args[0] === "validate" || args[0] === "explain" || args[0] === "subtag") {
     command = args.shift();
   }
 
@@ -323,24 +346,24 @@ function parseArgs(argv) {
     }
 
     if (arg === "--quiet") {
-      if (command === "explain") {
-        throw unsupportedExplainOptionError("--quiet");
+      if (command !== "validate") {
+        throw unsupportedLookupOptionError("--quiet", command);
       }
       options.quiet = true;
       continue;
     }
 
     if (arg === "--stdin") {
-      if (command === "explain") {
-        throw unsupportedExplainOptionError("--stdin");
+      if (command !== "validate") {
+        throw unsupportedLookupOptionError("--stdin", command);
       }
       options.stdin = true;
       continue;
     }
 
     if (arg === "--mode") {
-      if (command === "explain") {
-        throw unsupportedExplainOptionError("--mode");
+      if (command !== "validate") {
+        throw unsupportedLookupOptionError("--mode", command);
       }
       index += 1;
       if (index >= args.length) {
@@ -355,16 +378,16 @@ function parseArgs(argv) {
     }
 
     if (arg.startsWith("--mode=")) {
-      if (command === "explain") {
-        throw unsupportedExplainOptionError("--mode");
+      if (command !== "validate") {
+        throw unsupportedLookupOptionError("--mode", command);
       }
       options.mode = arg.slice("--mode=".length);
       continue;
     }
 
     if (arg === "--file") {
-      if (command === "explain") {
-        throw unsupportedExplainOptionError("--file");
+      if (command !== "validate") {
+        throw unsupportedLookupOptionError("--file", command);
       }
       index += 1;
       if (index >= args.length) {
@@ -379,8 +402,8 @@ function parseArgs(argv) {
     }
 
     if (arg.startsWith("--file=")) {
-      if (command === "explain") {
-        throw unsupportedExplainOptionError("--file");
+      if (command !== "validate") {
+        throw unsupportedLookupOptionError("--file", command);
       }
       options.file = arg.slice("--file=".length);
       continue;
@@ -575,6 +598,38 @@ function formatExplanationText(result) {
   return `${sections.join("\n")}\n`;
 }
 
+function formatSubtagText(result) {
+  const sections = [
+    [
+      "subtag",
+      formatLabelValue("input", result.input),
+    ].join("\n"),
+    [
+      "status",
+      formatLabelValue("ok", String(result.ok)),
+    ].join("\n"),
+    [
+      "matches",
+      ...(result.matches.length > 0
+        ? result.matches.map(formatExplanationEntry)
+        : ["  (none)"]),
+    ].join("\n"),
+    [
+      "guidance",
+      ...(result.guidance.length > 0
+        ? result.guidance.map((note) => `  - ${note}`)
+        : ["  (none)"]),
+    ].join("\n"),
+  ];
+
+  const errorsBlock = formatOptionalBlock("errors", result.errors);
+  if (errorsBlock) {
+    sections.push(errorsBlock);
+  }
+
+  return `${sections.join("\n")}\n`;
+}
+
 async function collectValidationTags(options, stdin, stdout, stderr, json) {
   const collectedTags = [...options.tags];
 
@@ -635,6 +690,26 @@ function validateExplainArity(options) {
   );
 }
 
+function validateSubtagArity(options) {
+  if (options.tags.length === 1) {
+    return null;
+  }
+
+  if (options.tags.length === 0) {
+    return cliError(
+      "no_input",
+      "subtag requires exactly one subtag",
+      ["Use 'bcp47 subtag SUBTAG'.", "Use 'bcp47 validate ...' to check language tags."],
+    );
+  }
+
+  return cliError(
+    "too_many_subtags",
+    "subtag accepts exactly one subtag",
+    ["Use 'bcp47 subtag SUBTAG' for a single registry lookup.", "Use 'bcp47 validate ...' to check multiple language tags."],
+  );
+}
+
 export async function runCli(argv, io = {}) {
   const stdin = io.stdin ?? process.stdin;
   const stdout = io.stdout ?? process.stdout;
@@ -683,6 +758,25 @@ export async function runCli(argv, io = {}) {
         writeJson(stdout, payload);
       } else {
         stdout.write(formatExplanationText(explanation));
+      }
+
+      return payload.exit;
+    }
+
+    if (options.command === "subtag") {
+      const arityError = validateSubtagArity(options);
+      if (arityError) {
+        emitError(arityError, json, stdout, stderr);
+        return arityError.exitCode;
+      }
+
+      const subtag = explainSubtag(options.tags[0]);
+      const payload = subtagPayload(subtag);
+
+      if (json) {
+        writeJson(stdout, payload);
+      } else {
+        stdout.write(formatSubtagText(subtag));
       }
 
       return payload.exit;

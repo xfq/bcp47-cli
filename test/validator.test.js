@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { analyzeTag, explainTag } from "../src/validator.js";
+import { analyzeTag, explainSubtag, explainTag } from "../src/validator.js";
 
 test("accepts common valid tags", () => {
   for (const tag of ["en", "en-US", "zh-Hans", "zh-Hant-TW", "sl-rozaj-biske", "en-US-x-twain", "zh-yue", "en-a-bbb-x-a-ccc"]) {
@@ -120,4 +120,40 @@ test("explainTag keeps malformed tags syntax-only and still breaks down registry
   assert.equal(invalid.valid, false);
   assert.deepEqual(invalid.subtags.map((entry) => entry.kind), ["language", "region"]);
   assert.match(invalid.errors[0], /unknown region/);
+});
+
+test("explainSubtag returns registry metadata for a specific subtag", () => {
+  const result = explainSubtag("Hrkt");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.input, "Hrkt");
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.matches.length, 1);
+  assert.deepEqual(result.matches[0], {
+    kind: "script",
+    value: "hrkt",
+    displayValue: "Hrkt",
+    notes: ["Script subtag."],
+    registryType: "script",
+    descriptions: ["Japanese syllabaries (alias for Hiragana + Katakana)"],
+  });
+});
+
+test("explainSubtag returns every registry match for ambiguous subtags", () => {
+  const result = explainSubtag("AA");
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.matches.map((entry) => entry.kind), ["language", "region"]);
+  assert.deepEqual(result.matches.map((entry) => entry.displayValue), ["aa", "AA"]);
+});
+
+test("explainSubtag reports unknown and malformed subtags", () => {
+  const unknown = explainSubtag("Nope");
+  assert.equal(unknown.ok, false);
+  assert.deepEqual(unknown.matches, []);
+  assert.match(unknown.errors[0], /unknown subtag 'Nope'/);
+
+  const malformed = explainSubtag("en-US");
+  assert.equal(malformed.ok, false);
+  assert.match(malformed.errors[0], /subtag must not contain '-'/);
 });
